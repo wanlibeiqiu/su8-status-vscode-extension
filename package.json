@@ -1,9 +1,9 @@
 {
-  "name": "88code-status-vscode-extension",
-  "displayName": "88code Status",
-  "description": "88code status extension",
-  "version": "0.3.3",
-  "repository": "https://github.com/byebye-code/88code-status-vscode-extension",
+  "name": "su8-codes-balance-vscode-extension",
+  "displayName": "Su8 Codes 余额",
+  "description": "Su8 Codes 中转站余额状态栏扩展",
+  "version": "1.0.1",
+  "repository": "https://github.com/wanlibeiqiu/su8-status-vscode-extension",
   "license": "MIT",
   "publisher": "eigeen",
   "engines": {
@@ -13,20 +13,96 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:su8-codes-balance.menu",
+    "onCommand:su8-codes-balance.refresh"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "88code-status.menu",
-        "title": "88code: Show Subscription Menu"
+        "command": "su8-codes-balance.menu",
+        "title": "Su8 Codes：打开余额菜单"
       },
       {
-        "command": "88code-status.refresh",
-        "title": "88code: Refresh Balance"
+        "command": "su8-codes-balance.refresh",
+        "title": "Su8 Codes：刷新余额"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Su8 Codes 余额",
+      "properties": {
+        "relayBalance.balanceEndpoint": {
+          "type": "string",
+          "default": "/usage",
+          "description": "余额接口路径（会拼接到 https://www.su8.codes/codex/v1，默认 /usage），也可填完整 URL。"
+        },
+        "relayBalance.requestMethod": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST"
+          ],
+          "default": "GET",
+          "description": "请求方法。"
+        },
+        "relayBalance.authHeader": {
+          "type": "string",
+          "default": "Authorization",
+          "description": "鉴权请求头名称，可用 Authorization 或 x-api-key。"
+        },
+        "relayBalance.authScheme": {
+          "type": "string",
+          "default": "Bearer",
+          "description": "鉴权前缀。留空时直接发送密钥。"
+        },
+        "relayBalance.balancePath": {
+          "type": "string",
+          "default": "remaining",
+          "description": "余额字段路径（点号路径，SU8 /usage 默认使用 remaining）。"
+        },
+        "relayBalance.quotaPath": {
+          "type": "string",
+          "default": "data.quota",
+          "description": "若找不到余额字段，可使用“总配额 - 已用”计算余额；这里填写总配额字段路径。"
+        },
+        "relayBalance.usedPath": {
+          "type": "string",
+          "default": "data.used_quota",
+          "description": "若找不到余额字段，可使用“总配额 - 已用”计算余额；这里填写已用字段路径。"
+        },
+        "relayBalance.valueScale": {
+          "type": "number",
+          "default": 1,
+          "description": "显示换算系数：显示值 = 原始值 * valueScale。"
+        },
+        "relayBalance.timeoutMs": {
+          "type": "number",
+          "default": 8000,
+          "description": "请求超时时间（毫秒）。"
+        },
+        "relayBalance.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "description": "自动刷新周期（秒）。最小 10 秒。"
+        },
+        "relayBalance.dashboardUrl": {
+          "type": "string",
+          "default": "",
+          "description": "可选。菜单中的控制台地址；支持完整 URL，或相对路径（例如 /dashboard）。"
+        },
+        "relayBalance.statusLabel": {
+          "type": "string",
+          "default": "余额",
+          "description": "状态栏标签文本。"
+        },
+        "relayBalance.currencySymbol": {
+          "type": "string",
+          "default": "$",
+          "description": "状态栏显示的货币符号。"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
