@@ -1,58 +1,145 @@
 import * as assert from "assert";
-import { fetchSubscriptions } from "../api";
+import { buildBalanceRequestUrl, resolveBalanceFromPayload } from "../api";
+import type { RelayBalanceSettings } from "../types";
 
-suite("api.fetchSubscriptions", () => {
-  const origFetch = (globalThis as any).fetch;
+function makeSettings(partial: Partial<RelayBalanceSettings> = {}): RelayBalanceSettings {
+  return {
+    baseUrl: "https://www.su8.codes/codex/v1",
+    balanceEndpoint: "/usage",
+    dashboardUrl: "",
+    requestMethod: "GET",
+    apiKey: "su8-test",
+    authHeader: "Authorization",
+    authScheme: "Bearer",
+    balancePath: "remaining",
+    quotaPath: "data.quota",
+    usedPath: "data.used_quota",
+    valueScale: 1,
+    timeoutMs: 8000,
+    refreshIntervalSeconds: 60,
+    statusLabel: "余额",
+    currencySymbol: "$",
+    ...partial,
+  };
+}
 
-  teardown(() => {
-    (globalThis as any).fetch = origFetch;
+suite("api helpers", () => {
+  test("buildBalanceRequestUrl joins base and endpoint", () => {
+    const url = buildBalanceRequestUrl(makeSettings());
+    assert.strictEqual(url, "https://www.su8.codes/codex/v1/usage");
   });
 
-  test("sends Authorization header and maps core fields", async () => {
-    const KEY = process.env["88CODE_API_KEY"] || process.env["key88"] || "test_api_key";
-    let captured: { url?: string; auth?: string } = {};
-
-    (globalThis as any).fetch = async (url: string, init: any) => {
-      captured.url = url;
-      captured.auth = init?.headers?.["Authorization"] || init?.headers?.Authorization;
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return [
-            {
-              planName: "FREE",
-              isActive: true,
-              currentCredits: 12.34,
-              creditLimit: 20,
-              resetTimes: 2,
-            },
-            {
-              planName: "DISABLED",
-              isActive: false,
-              currentCredits: 99,
-              creditLimit: 100,
-              resetTimes: 1,
-            },
-          ];
+  test("resolveBalanceFromPayload parses SU8 usage payload", () => {
+    const result = resolveBalanceFromPayload(
+      {
+        isValid: true,
+        invalidCode: null,
+        invalidMessage: null,
+        planName: "套餐+余额",
+        remaining: 15,
+        unit: "USD",
+        balance: 5,
+        plan_remaining: 10,
+        todayLimit: 10,
+        todayRemaining: 9,
+        todayRemainingWithCarryover: 9,
+        subscriptions: [
+          {
+            planId: "plan_xxx",
+            planName: "Smoke Plan",
+            remaining: 10,
+            todayLimit: 10,
+            todayRemaining: 9,
+            todayRemainingWithCarryover: 9,
+            unit: "USD",
+            isValid: true,
+          },
+        ],
+        concurrency: {
+          plan: 3,
+          balance: 50,
         },
-      } as any;
-    };
+      },
+      makeSettings()
+    );
 
-    const subs = await fetchSubscriptions(KEY);
-    assert.ok(captured.url?.includes("/api/subscription"));
-    assert.strictEqual(captured.auth, `Bearer ${KEY}`);
-    assert.strictEqual(subs.length, 2);
-    assert.deepStrictEqual(subs[0], {
-      planName: "FREE",
-      isActive: true,
-      currentCredits: 12.34,
-      creditLimit: 20,
-      resetTimes: 2,
-    });
+    assert.strictEqual(result.mode, "direct");
+    assert.strictEqual(result.rawBalance, 15);
+    assert.strictEqual(result.balancePath, "remaining");
+    assert.strictEqual(result.unit, "USD");
+    assert.strictEqual(result.planName, "套餐+余额");
+    assert.strictEqual(result.todayLimit, 10);
+    assert.strictEqual(result.subscriptions.length, 1);
+    assert.strictEqual(result.concurrencyPlan, 3);
+    assert.strictEqual(result.isValid, true);
   });
 
-  test("throws when apiKey missing", async () => {
-    await assert.rejects(() => fetchSubscriptions("" as any));
+  test("resolveBalanceFromPayload falls back to balance + plan_remaining", () => {
+    const result = resolveBalanceFromPayload(
+      {
+        isValid: true,
+        balance: 5,
+        plan_remaining: 10,
+      },
+      makeSettings({ balancePath: "" })
+    );
+
+    assert.strictEqual(result.mode, "balancePlusPlan");
+    assert.strictEqual(result.rawBalance, 15);
+    assert.strictEqual(result.displayBalance, 15);
+    assert.strictEqual(result.balancePath, "balance + plan_remaining");
+  });
+
+  test("resolveBalanceFromPayload keeps split parts when remaining equals balance plus plan_remaining", () => {
+    const result = resolveBalanceFromPayload(
+      {
+        isValid: true,
+        remaining: 15,
+        balance: 5,
+        plan_remaining: 10,
+      },
+      makeSettings()
+    );
+
+    assert.strictEqual(result.mode, "direct");
+    assert.strictEqual(result.rawBalance, 15);
+    assert.strictEqual(result.balancePart, 5);
+    assert.strictEqual(result.planRemainingPart, 10);
+  });
+
+  test("resolveBalanceFromPayload maps NO_QUOTA to zero balance", () => {
+    const result = resolveBalanceFromPayload(
+      {
+        isValid: false,
+        invalidCode: "NO_QUOTA",
+        invalidMessage: "No available quota",
+      },
+      makeSettings({ balancePath: "" })
+    );
+
+    assert.strictEqual(result.mode, "noQuota");
+    assert.strictEqual(result.rawBalance, 0);
+    assert.strictEqual(result.displayBalance, 0);
+    assert.strictEqual(result.isValid, false);
+    assert.strictEqual(result.invalidCode, "NO_QUOTA");
+  });
+
+  test("resolveBalanceFromPayload falls back to quota-used and scale", () => {
+    const result = resolveBalanceFromPayload(
+      {
+        data: {
+          quota: 500000,
+          used_quota: 250000,
+        },
+      },
+      makeSettings({
+        balancePath: "",
+        valueScale: 0.000002,
+      })
+    );
+
+    assert.strictEqual(result.mode, "quotaMinusUsed");
+    assert.strictEqual(result.rawBalance, 250000);
+    assert.strictEqual(result.displayBalance, 0.5);
   });
 });
